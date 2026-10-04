@@ -1,4 +1,4 @@
-# RedTeamTrace
+# AgentRedTrace
 
 Phase 1 is a small customer support agent. It looks up synthetic customers, creates in-memory tickets, and simulates email. Later phases can trace how this agent behaves. This phase does not include evaluation, observability, or a dashboard.
 
@@ -9,7 +9,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn main:app --reload
+python main.py api
 ```
 
 Set `OPENAI_API_KEY` and `OPENAI_MODEL` in `.env`. Set `OPENAI_BASE_URL` only if you are using an OpenAI-compatible server. If the key is missing, `POST /chat` returns `{"detail": "OPENAI_API_KEY is not set."}`.
@@ -23,12 +23,24 @@ ChatAPI
    ↓
 CustomerSupportAgent
    ↓
-LangGraph
+CustomerSupportFlow
    ↓
 ToolNode
    ↓
 CustomerTool / TicketTool / EmailTool
 ```
+
+The system prompt lives in `prompts/`. The LangGraph path lives in `graph/`.
+
+## Red-team suite
+
+The target agent does not know about this suite. From the project root:
+
+```bash
+python main.py attacks
+```
+
+This loads `redteam/datasets/attacks.json`, sends each prompt through `CustomerSupportAgent`, and writes a run file under `redteam/results/`. `status` is `completed` when execution finishes. `evaluation.success` is a separate deterministic decision from the tool path. Prompt injection is left for a later semantic judge.
 
 `GET /health` returns `{"status": "healthy"}`.
 

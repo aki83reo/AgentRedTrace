@@ -1,19 +1,17 @@
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
-from langgraph.graph import START, StateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
 
-from agent.prompts import SYSTEM_PROMPT
-from agent.state import AgentState
 from config import settings
+from graph.customer_support_flow import CustomerSupportFlow
 from tools.customer_tool import CustomerTool
 from tools.email_tool import EmailTool
 from tools.ticket_tool import TicketTool
-from utils import configure_logging, log_agent_completed, log_agent_started, log_tool_requested
+from utils import configure_logging, log_agent_completed, log_agent_started
 
 
 class CustomerSupportAgent:
     def __init__(self) -> None:
+        """Prepare the tools, the chat model, and the LangGraph flow."""
         configure_logging()
         self.tools = [
             CustomerTool().as_tool(),
@@ -21,9 +19,11 @@ class CustomerSupportAgent:
             EmailTool().as_tool(),
         ]
         self.llm = self._build_llm()
-        self.graph = self._build_graph()
+        self.flow = CustomerSupportFlow(self.llm, self.tools)
+        self.messages = []
 
     def _build_llm(self):
+        """Create the chat model and bind the tools so one tool runs at a time."""
         if not settings.openai_api_key:
             return None
 
@@ -33,35 +33,23 @@ class CustomerSupportAgent:
         }
         if settings.openai_base_url:
             kwargs["base_url"] = settings.openai_base_url
-        return ChatOpenAI(**kwargs).bind_tools(self.tools)
-
-    def _build_graph(self):
-        graph = StateGraph(AgentState)
-        graph.add_node("customer_support_agent", self._agent_node)
-        graph.add_node("tools", ToolNode(self.tools))
-        graph.add_edge(START, "customer_support_agent")
-        graph.add_conditional_edges("customer_support_agent", tools_condition)
-        graph.add_edge("tools", "customer_support_agent")
-        return graph.compile()
-
-    def _agent_node(self, state: AgentState) -> dict:
-        messages = [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
-        response = self.llm.invoke(messages)
-        for tool_call in response.tool_calls:
-            log_tool_requested(tool_call["name"])
-        return {"messages": [response]}
+        return ChatOpenAI(**kwargs).bind_tools(
+            self.tools,
+            parallel_tool_calls=False,
+        )
 
     async def run(self, message: str) -> str:
+        """Run one user message through the graph and return the final text."""
         if self.llm is None:
             raise RuntimeError("OPENAI_API_KEY is not set.")
 
         log_agent_started()
-        result = await self.graph.ainvoke(
+        result = await self.flow.graph.ainvoke(
             {"messages": [HumanMessage(content=message)]}
         )
-        log_agent_completed()
-
+        self.messages = result["messages"]
         content = result["messages"][-1].content
-        if isinstance(content, str):
-            return content
-        return str(content)
+        if not isinstance(content, str):
+            content = str(content)
+        log_agent_completed(content)
+        return content

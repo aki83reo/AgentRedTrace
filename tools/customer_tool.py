@@ -1,6 +1,6 @@
 from langchain_core.tools import StructuredTool
 
-from utils import format_tool_result, log_tool_executed
+from utils import format_tool_result, log_tool_result
 
 CUSTOMERS = {
     "C001": {
@@ -20,12 +20,12 @@ CUSTOMERS = {
 
 class CustomerTool:
     def as_tool(self):
+        """Expose customer lookup as a LangChain tool."""
         return StructuredTool.from_function(self.get_customer)
 
     def get_customer(self, customer_id: str) -> str:
         """Look up a customer by customer_id, such as C001."""
-        log_tool_executed("get_customer")
         customer = CUSTOMERS.get(customer_id.strip().upper())
-        if customer is None:
-            return format_tool_result({"error": "Customer not found"})
-        return format_tool_result(customer)
+        payload = {"error": "Customer not found"} if customer is None else customer
+        log_tool_result(payload)
+        return format_tool_result(payload)
